@@ -3,6 +3,9 @@ from openai import OpenAI
 import base64
 import os
 from dotenv import load_dotenv
+import json
+from fastapi.responses import JSONResponse
+import re
 
 load_dotenv()
 
@@ -32,8 +35,14 @@ async def upload_food_image(file: UploadFile = File(...)):
                 }
             ]
         )
-
-        return {"nutrition_feedback": response.output_text}
+        
+        cleaned = re.sub(r"```json|```", "", response.output_text).strip()
+        last_brace = cleaned.rfind("}")
+        if last_brace != -1:
+            cleaned = cleaned[:last_brace+1]
+        nutrition_data = json.loads(cleaned)
+        #return {"nutrition_feedback": response.output_text}
+        return JSONResponse(content=nutrition_data)
 
     except Exception as e:
         return {"error": str(e)}
