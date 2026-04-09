@@ -1,4 +1,7 @@
-from fastapi import APIRouter, UploadFile, File
+from pydantic import BaseModel
+
+from fastapi import APIRouter, UploadFile, File,HTTPException,Depends,Security
+from fastapi.security import APIKeyHeader
 from openai import OpenAI
 import base64
 import os
@@ -10,10 +13,20 @@ import re
 load_dotenv()
 
 router = APIRouter()
+API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-@router.post("/upload-food-image")
-async def upload_food_image(file: UploadFile = File(...)):
+endpoint_api_key=os.getenv("ENDPOINT_API_KEY")
+API_KEY_NAME="x-api-key"
+api_key_header=APIKeyHeader(name=API_KEY_NAME,auto_error=False)
+
+def verify_api_key(end_api_key:str=Security(api_key_header)):
+    if end_api_key==endpoint_api_key:
+        return True
+    raise HTTPException(status_code=401,detail="Unauthorized")
+
+@router.post("/upload-food-image/")
+async def upload_food_image(file: UploadFile = File(...),api_key:str=Depends(verify_api_key)):
     try:
         # Read uploaded image
         image_bytes = await file.read()
@@ -46,3 +59,36 @@ async def upload_food_image(file: UploadFile = File(...)):
 
     except Exception as e:
         return {"error": str(e)}
+
+
+class GymFoodResponse(BaseModel):
+    username:str
+    food:str
+
+@router.post("/gym-food-response/")
+def gym_food_response(food_response:GymFoodResponse,api_key:str=Depends(verify_api_key)):
+    #prompt=f"Hello {food_response.username},you had {food_response.food}. "
+    #"Give friendly advice on nutrition for someone who goes to the gym."
+
+    prompt = f"""
+            Hello {food_response.username},you had {food_response.food}.
+
+            Give:
+            - protein feedback '\'
+            - calories comment
+            - muscle gain suggestion
+            - next meal recommendation
+            """
+
+    #call openai chatcompletion API
+    response=client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role":"system","content":"You are a fitness and nutrition assistant."},
+                 {"role":"user","content":prompt}
+                ],
+            max_tokens=100
+    )
+    answer=response.choices[0].message.content
+    answer = answer.replace("\\n", "\n")
+    return {"advice": answer}
+    
